@@ -9,7 +9,6 @@ from enum import Enum
 import aiohttp
 import discord
 import wavelink
-from wavelink.ext import spotify
 from discord.ext import commands
 
 URL_REGEX = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
@@ -205,7 +204,7 @@ class Music(commands.Cog):
 
     @commands.command(name="disconnect", aliases=["leave"])
     async def disconnect_command(self, ctx):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
         await player.teardown()
         await ctx.send("Disconnected.")
@@ -251,7 +250,7 @@ class Music(commands.Cog):
                 print(track)
                 await ctx.send(f"Added {track.title} to the queue.")
         
-        if not player.is_playing() and not self.queue.is_empty:
+        if not player.playing and not self.queue.is_empty:
             await self.start_playback(vc)
 
 
@@ -310,14 +309,13 @@ class Music(commands.Cog):
             if not re.match(URL_REGEX, query):
                 query = f"{query}"
                 
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
-        tracks = await wavelink.YouTubeTrack.search(query, return_first=False)
-        
+        tracks = await wavelink.Playable.search(query)
         await self.add_tracks(ctx, tracks, vc, player)
         
-        # await vc.play(track)
+        await vc.play(track)
         
     @play_youtube_command.error
     async def play_youtube_command_error(self, ctx, exc):
@@ -345,10 +343,10 @@ class Music(commands.Cog):
             if not re.match(URL_REGEX, query):
                 query = f"{query}"
                 
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
-        tracks = await wavelink.SoundCloudTrack.search(query, return_first=False)
+        tracks = await wavelink.Playable.search(query)
         
         await self.add_tracks(ctx, tracks, vc, player)
         
@@ -358,40 +356,10 @@ class Music(commands.Cog):
             await ctx.send("No songs to play as the queue is empty.")
         elif isinstance(exc, NoVoiceChannel):
             await ctx.send("No suitable voice channel was provided.")    
-            
-    @commands.command(name="sp")
-    async def play_spotify_command(self, ctx, *, query: t.Optional[str]):
-        if not ctx.voice_client:
-            vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
-        else:
-            vc: wavelink.Player = ctx.voice_client
-            
-        if query is None:
-            if self.queue.is_empty:
-                raise QueueIsEmpty
-
-            await ctx.send("Playback resumed.")
-
-        else:
-            query = query.strip("<>")
-            if not re.match(URL_REGEX, query):
-                query = f"{query}"
-                
-        node = wavelink.NodePool.get_node()
-        player = node.get_player(ctx.guild.id)
-        
-        await self.add_tracks(ctx, tracks, vc, player)
-        
-    @play_spotify_command.error
-    async def play_spotify_command_error(self, ctx, exc):
-        if isinstance(exc, QueueIsEmpty):
-            await ctx.send("No songs to play as the queue is empty.")
-        elif isinstance(exc, NoVoiceChannel):
-            await ctx.send("No suitable voice channel was provided.")    
 
     @commands.command(name="pause")
     async def pause_command(self, ctx):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if not player.is_paused:
@@ -408,7 +376,7 @@ class Music(commands.Cog):
     @commands.command(name="resume")
     async def resume_command(self, ctx):
         """Resume song."""
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         await player.resume()
@@ -418,7 +386,7 @@ class Music(commands.Cog):
     @commands.command(name="stop")
     async def stop_command(self, ctx):
         """Stop playing song.""" 
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
         self.queue.empty()
         await player.stop()
@@ -426,7 +394,7 @@ class Music(commands.Cog):
 
     @commands.command(name="next", aliases=["skip"])
     async def next_command(self, ctx):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if not self.queue.upcoming:
@@ -449,7 +417,7 @@ class Music(commands.Cog):
     @commands.command(name="previous")
     async def previous_command(self, ctx):
         """Play previous song."""
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if not self.queue.history:
@@ -472,7 +440,7 @@ class Music(commands.Cog):
     @commands.command(name="shuffle")
     async def shuffle_command(self, ctx):
         """Suffle songs."""
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
         self.queue.shuffle()
         await ctx.send("Queue shuffled.")
@@ -491,7 +459,7 @@ class Music(commands.Cog):
         if mode not in ("none", "1", "all"):
             raise InvalidRepeatMode
 
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
         self.queue.set_repeat_mode(mode)
         await ctx.send(f"The repeat mode has been set to {mode}.")
@@ -540,7 +508,7 @@ class Music(commands.Cog):
 
     @commands.group(name="volume", invoke_without_command=True)
     async def volume_group(self, ctx, volume: int):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if volume < 0:
@@ -561,7 +529,7 @@ class Music(commands.Cog):
 
     @volume_group.command(name="up")
     async def volume_up_command(self, ctx):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if player.volume == 150:
@@ -577,7 +545,7 @@ class Music(commands.Cog):
 
     @volume_group.command(name="down")
     async def volume_down_command(self, ctx):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if player.volume == 0:
@@ -593,7 +561,7 @@ class Music(commands.Cog):
 
     @commands.command(name="lyrics")
     async def lyrics_command(self, ctx, name: t.Optional[str]):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
         name = name or self.queue.current_track.title
 
@@ -624,7 +592,7 @@ class Music(commands.Cog):
 
     @commands.command(name="eq")
     async def eq_command(self, ctx, preset: str):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         eq = getattr(wavelink.eqs.Equalizer, preset, None)
@@ -641,7 +609,7 @@ class Music(commands.Cog):
 
     @commands.command(name="adveq", aliases=["aeq"])
     async def adveq_command(self, ctx, band: int, gain: float):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if not 1 <= band <= 15 and band not in HZ_BANDS:
@@ -671,10 +639,10 @@ class Music(commands.Cog):
     @commands.command(name="playing", aliases=["np"])
     async def playing_command(self, ctx):
         """Shows current playing song."""
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
-        if not player.is_playing:
+        if not player.playing:
             raise PlayerIsAlreadyPaused
 
         embed = discord.Embed(
@@ -704,7 +672,7 @@ class Music(commands.Cog):
 
     @commands.command(name="skipto", aliases=["playindex"])
     async def skipto_command(self, ctx, index: int):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if self.queue.is_empty:
@@ -726,7 +694,7 @@ class Music(commands.Cog):
 
     @commands.command(name="restart")
     async def restart_command(self, ctx):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if self.queue.is_empty:
@@ -742,7 +710,7 @@ class Music(commands.Cog):
 
     @commands.command(name="seek")
     async def seek_command(self, ctx, position: str):
-        node = wavelink.NodePool.get_node()
+        node = wavelink.Pool.get_node()
         player = node.get_player(ctx.guild.id)
 
         if self.queue.is_empty:

@@ -7,7 +7,6 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import os
 import wavelink
-from wavelink.ext import spotify
 
 load_dotenv(".env")
 
@@ -75,14 +74,9 @@ class MusicBot(commands.Bot):
         if not msg.author.bot:
             await self.process_commands(msg)
             
-    async def setup_hook(self) -> None:
-        sc = spotify.SpotifyClient(
-            client_id='c0fe4c3757594929bfb4b29f1b33de6b',
-            client_secret='588fc261cb6347d38df8957bae581f7e'
-        )
-        
+    async def setup_hook(self) -> None:    
         # Wavelink 2.0 has made connecting Nodes easier... Simply create each Node
         # and pass it to NodePool.connect with the client/bot.
-        node: wavelink.Node = wavelink.Node(id="MAIN", uri='http://localhost:2333', password='youshallnotpass')
-        print(f" Wavelink node `{node.id}` ready.")
-        await wavelink.NodePool.connect(client=self, nodes=[node], spotify=sc)
+        node: wavelink.Node = wavelink.Node(identifier="MAIN", uri='http://localhost:2333', password='youshallnotpass')
+        print(f" Wavelink node `{node.identifier}` ready.")
+        await wavelink.Pool.connect(client=self, nodes=[node])
